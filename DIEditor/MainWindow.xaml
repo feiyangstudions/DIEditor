@@ -47,6 +47,8 @@
                     <Button x:Uid="LoadRawDirButton" x:Name="LoadRawDirButton"
                         VerticalAlignment="Bottom"
                         Click="LoadRawDirButton_Click"/>
+                    <Button x:Uid="ClearDirDIButton" x:Name="ClearDirDIButton"
+                            VerticalAlignment="Bottom" Click="ClearDirDIButton_Click"/>
                 </StackPanel>
                 <!-- 第2行内容 -->
                 <Grid ColumnSpacing="20" Grid.Row="1">

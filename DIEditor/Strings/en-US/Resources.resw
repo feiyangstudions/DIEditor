@@ -246,4 +246,7 @@
   <data name="KVE_StatusFormat" xml:space="preserve">
     <value>{0} entries, {1} filled</value>
   </data>
+  <data name="ClearDirDIButton.Content" xml:space="preserve">
+    <value>Clear desktop.ini of selected folder</value>
+  </data>
 </root>

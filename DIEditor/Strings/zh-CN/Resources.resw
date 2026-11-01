@@ -289,4 +289,8 @@
     <value>共 {0} 条，已填写 {1} 条</value>
     <comment>{0}=总数 {1}=已填</comment>
   </data>
+  <data name="ClearDirDIButton.Content" xml:space="preserve">
+    <value>清除选定文件夹的 desktop.ini</value>
+    <comment>删除desktop.ini</comment>
+  </data>
 </root>

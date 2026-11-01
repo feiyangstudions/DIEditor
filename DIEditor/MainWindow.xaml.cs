@@ -95,6 +95,8 @@ namespace DIEditor
             // 创建一个文件选择器
             var picker = new FileOpenPicker(AppWindow.Id);
             picker.FileTypeFilter.Add(".ico");
+            picker.FileTypeFilter.Add(".dll");
+            picker.FileTypeFilter.Add(".exe");
 
             var result = await picker.PickSingleFileAsync();
 
@@ -365,6 +367,124 @@ namespace DIEditor
         {
             if (DIEncodingComboBox.SelectedIndex == 0) encoding = SupportingEncodings.UTF16_LE;
             else if (DIEncodingComboBox.SelectedIndex == 1) encoding = SupportingEncodings.ANSI;
+        }
+
+        private async void ClearDirDIButton_Click(object sender, RoutedEventArgs e)
+        {
+            _rawDirPath = RawDirPathTextBox.Text.Trim();
+            if (string.IsNullOrEmpty(_rawDirPath))
+            {
+                var ed = new ContentDialog
+                {
+                    Title = "提示",
+                    Content = $"请先选择一个文件夹！",
+                    CloseButtonText = "关闭"
+                };
+                ed.XamlRoot = this.Content.XamlRoot;
+                _ = await ed.ShowAsync();
+                return;
+            }
+            else if (!Path.Exists(_rawDirPath) || !Directory.Exists(_rawDirPath))
+            {
+                var ed = new ContentDialog
+                {
+                    Title = "提示",
+                    Content = $"{_rawDirPath}不存在！\n请选择一个存在的文件夹！",
+                    CloseButtonText = "关闭"
+                };
+                ed.XamlRoot = this.Content.XamlRoot;
+                _ = await ed.ShowAsync();
+                return;
+            }
+            else if (!File.Exists(Path.Combine(_rawDirPath, "desktop.ini")))
+            {
+                var ed = new ContentDialog
+                {
+                    Title = "提示",
+                    Content = $"{_rawDirPath}下不存在desktop.ini！",
+                    CloseButtonText = "关闭"
+                };
+                ed.XamlRoot = this.Content.XamlRoot;
+                _ = await ed.ShowAsync();
+                return;
+            }
+            else if (File.Exists(_rawDirPath))
+            {
+                var ed = new ContentDialog
+                {
+                    Title = "提示",
+                    Content = $"{_rawDirPath}是一个文件而不是文件夹！",
+                    CloseButtonText = "关闭"
+                };
+                ed.XamlRoot = this.Content.XamlRoot;
+                _ = await ed.ShowAsync();
+                return;
+            }
+            var id = new ContentDialog
+            {
+                Title = "提示",
+                Content = $"是否要删除{_rawDirPath}下的desktop.ini？",
+                PrimaryButtonText = "是",
+                CloseButtonText = "否"
+            };
+            id.XamlRoot = this.Content.XamlRoot;
+            var result = await id.ShowAsync();
+            if (result == ContentDialogResult.None) return;
+            id = new ContentDialog
+            {
+                Title = "提示",
+                Content = $"是否要关闭文件夹的\"只读\"属性？\n关闭此属性不会导致您的文件内容取消只读或丢失",
+                PrimaryButtonText = "是",
+                CloseButtonText = "否"
+            };
+            id.XamlRoot = this.Content.XamlRoot;
+            result = await id.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                try
+                {
+                    var di = new DirectoryInfo(_rawDirPath);
+                    di.Attributes &= ~FileAttributes.ReadOnly;
+                }
+                catch (Exception ex)
+                {
+                    var ed = new ContentDialog
+                    {
+                        Title = "错误",
+                        Content = $"关闭只读属性时发生错误：{ex.Message}\n如果您无法理解错误内容，请告诉开发者",
+                        CloseButtonText = "关闭"
+                    };
+                    ed.XamlRoot = this.Content.XamlRoot;
+                    _ = await ed.ShowAsync();
+                }
+            }
+            try
+            {
+                var dipath = Path.Combine(_rawDirPath, "desktop.ini");
+                FileInfo fi = new FileInfo(dipath);
+                fi.Attributes = FileAttributes.Normal;
+                File.Delete(dipath);
+                ResetEditor();
+                var sd = new ContentDialog
+                {
+                    Title = "提示",
+                    Content = $"desktop.ini已成功删除！",
+                    CloseButtonText = "关闭"
+                };
+                sd.XamlRoot = this.Content.XamlRoot;
+                _ = await sd.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                var ed = new ContentDialog
+                {
+                    Title = "错误",
+                    Content = $"删除desktop.ini时发生错误：{ex.Message}\n如果您无法理解错误内容，请告诉开发者",
+                    CloseButtonText = "关闭"
+                };
+                ed.XamlRoot = this.Content.XamlRoot;
+                _ = await ed.ShowAsync();
+            }
         }
     }
 }

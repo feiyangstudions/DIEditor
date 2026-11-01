@@ -64,10 +64,10 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="FToolkit.WinUI3.Control">
-      <HintPath>..\..\FToolkit\FToolkit.WinUI3.Control\bin\Release\net8.0-windows10.0.19041.0\publish\FToolkit.WinUI3.Control.dll</HintPath>
+      <HintPath>..\externals\FToolkit\FToolkit.WinUI3.Control.dll</HintPath>
     </Reference>
     <Reference Include="FToolkit.WinUI3.Windows">
-      <HintPath>..\..\FToolkit\FToolkit.WinUI3.Windows\bin\Release\net8.0-windows10.0.19041.0\publish\FToolkit.WinUI3.Windows.dll</HintPath>
+      <HintPath>..\externals\FToolkit\FToolkit.WinUI3.Windows.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
