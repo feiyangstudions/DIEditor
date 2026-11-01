@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "DIEditor (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "DIEditor (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

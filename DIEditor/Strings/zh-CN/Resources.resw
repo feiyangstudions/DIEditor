@@ -1,0 +1,292 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="CustomNameCheckBox.Content" xml:space="preserve">
+    <value>启用文件夹自定义名称</value>
+    <comment>文件夹自定义名称复选框</comment>
+  </data>
+  <data name="LoadRawDirButton.Content" xml:space="preserve">
+    <value>载入</value>
+    <comment>载入按钮</comment>
+  </data>
+  <data name="RawDirPathPickButton.Content" xml:space="preserve">
+    <value>浏览...</value>
+    <comment>选择原始文件夹</comment>
+  </data>
+  <data name="RawDirPathTextBox.Header" xml:space="preserve">
+    <value>要编辑的文件夹:</value>
+    <comment>原始文件夹输入框</comment>
+  </data>
+  <data name="CustomNameTextBox.Header" xml:space="preserve">
+    <value>文件夹自定义名称:</value>
+    <comment>文件夹自定义名称输入框头</comment>
+  </data>
+  <data name="TitleBar.Title" xml:space="preserve">
+    <value>Feiyang 的desktop.ini编辑器</value>
+    <comment>应用名称</comment>
+  </data>
+  <data name="CustomNameTextBox.PlaceholderText" xml:space="preserve">
+    <value>名称</value>
+    <comment>文件夹自定义名称输入框占位符</comment>
+  </data>
+  <data name="CustomIconCheckBox.Content" xml:space="preserve">
+    <value>启用文件夹自定义图标</value>
+    <comment>文件夹自定义图标复选框</comment>
+  </data>
+  <data name="CustomIconPathTextBox.Header" xml:space="preserve">
+    <value>文件夹图标路径:</value>
+    <comment>文件夹自定义图标路径输入框头</comment>
+  </data>
+  <data name="CustomIconPathTextBox.PlaceholderText" xml:space="preserve">
+    <value>文件夹图标路径...</value>
+    <comment>文件夹自定义图标路径输入框占位符</comment>
+  </data>
+  <data name="CustomIconPathSelectButton.Content" xml:space="preserve">
+    <value>浏览...</value>
+    <comment>选择图标文件</comment>
+  </data>
+  <data name="CustomIconIndexNumberBox.Header" xml:space="preserve">
+    <value>图标文件索引 (不了解请保持0):</value>
+    <comment>自定义图标文件索引</comment>
+  </data>
+  <data name="CustomTooltipCheckBox.Content" xml:space="preserve">
+    <value>启用文件夹自定义悬停提示</value>
+    <comment>自定义文件夹悬停提示复选框</comment>
+  </data>
+  <data name="CustomFileNameCheckBox.Content" xml:space="preserve">
+    <value>启用自定义文件名</value>
+    <comment>文件自定义名称复选框</comment>
+  </data>
+  <data name="DIEncodingComboBox.Header" xml:space="preserve">
+    <value>desktop.ini输出编码（保持默认即可）:</value>
+    <comment>输出编码选择框</comment>
+  </data>
+  <data name="DISystemCheckBox.Content" xml:space="preserve">
+    <value>将desktop.ini设为系统文件（可选项，建议开启）</value>
+    <comment>系统文件复选框</comment>
+  </data>
+  <data name="DIHiddenCheckBox.Content" xml:space="preserve">
+    <value>将desktop.ini设为隐藏文件（可选项，建议开启）</value>
+    <comment>隐藏文件复选框</comment>
+  </data>
+  <data name="GenerateButton.Content" xml:space="preserve">
+    <value>生成 desktop.ini</value>
+    <comment>生成按钮</comment>
+  </data>
+  <data name="SaveButton.Content" xml:space="preserve">
+    <value>保存</value>
+    <comment>保存按钮</comment>
+  </data>
+  <data name="DIPreviewTextBox.Header" xml:space="preserve">
+    <value>输出预览:</value>
+    <comment>输出预览文本框</comment>
+  </data>
+  <data name="DIPreviewTextBox.PlaceholderText" xml:space="preserve">
+    <value>空...</value>
+    <comment>输出预览文本框占位符</comment>
+  </data>
+  <data name="EncodingUtf16LE.Content" xml:space="preserve">
+    <value>UTF-16 LE（推荐）</value>
+    <comment>UTF16LE编码</comment>
+  </data>
+  <data name="EncodingAnsi.Content" xml:space="preserve">
+    <value>ANSI（GBK）（不支持中文文件名）</value>
+    <comment>ANSI编码</comment>
+  </data>
+  <data name="AdvancedOptions.Text" xml:space="preserve">
+    <value>高级选项</value>
+    <comment>高级选项文字</comment>
+  </data>
+  <data name="CustomTooltipTextBox.Header" xml:space="preserve">
+    <value>文件夹自定义悬停提示:</value>
+    <comment>悬停提示文本框</comment>
+  </data>
+  <data name="CustomTooltipTextBox.PlaceholderText" xml:space="preserve">
+    <value>悬停提示</value>
+    <comment>悬停提示文本框占位符</comment>
+  </data>
+  <data name="KVE_BrowseButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>从文件中选择，仅取文件名填入键</value>
+    <comment>附加属性三段式键名</comment>
+  </data>
+  <data name="KVE_BrowseButton.AutomationProperties.Name" xml:space="preserve">
+    <value>选择文件</value>
+    <comment>屏幕阅读器读的按钮名</comment>
+  </data>
+  <data name="KVE_BrowseLabel.Text" xml:space="preserve">
+    <value>浏览...</value>
+    <comment>按钮上的短文字</comment>
+  </data>
+  <data name="KVE_KeyBox.PlaceholderText" xml:space="preserve">
+    <value>原始文件名</value>
+    <comment>键框空态提示</comment>
+  </data>
+  <data name="KVE_KeyBox.AutomationProperties.Name" xml:space="preserve">
+    <value>键</value>
+    <comment>无障碍名称，不要写成长句</comment>
+  </data>
+  <data name="KVE_ValueBox.PlaceholderText" xml:space="preserve">
+    <value>自定义文件名</value>
+    <comment>值框空态提示</comment>
+  </data>
+  <data name="KVE_ValueBox.AutomationProperties.Name" xml:space="preserve">
+    <value>值</value>
+    <comment>无障碍名称</comment>
+  </data>
+  <data name="KVE_DeleteButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>删除此条目</value>
+    <comment>顾名思义</comment>
+  </data>
+  <data name="KVE_DeleteButton.AutomationProperties.Name" xml:space="preserve">
+    <value>删除此条目</value>
+    <comment>键必须分开</comment>
+  </data>
+  <data name="KVE_AddLabel.Text" xml:space="preserve">
+    <value>添加条目</value>
+    <comment>顾名思义</comment>
+  </data>
+  <data name="KVE_PickFileDialogTitle" xml:space="preserve">
+    <value>选择文件</value>
+    <comment>代码侧取用，对话框标题</comment>
+  </data>
+  <data name="KVE_ErrKeyRequired" xml:space="preserve">
+    <value>键不能为空。</value>
+    <comment>行内红字</comment>
+  </data>
+  <data name="KVE_ErrKeyDuplicate" xml:space="preserve">
+    <value>键“{0}”重复，字典的键必须唯一。</value>
+    <comment>{0}=键名</comment>
+  </data>
+  <data name="KVE_ErrValueWithoutKey" xml:space="preserve">
+    <value>存在只填了值、没填键的条目，无法转换为字典。</value>
+    <comment>异常消息</comment>
+  </data>
+  <data name="KVE_ErrKeyDuplicateToDict" xml:space="preserve">
+    <value>键“{0}”重复，无法转换为字典。</value>
+    <comment>{0}=键名</comment>
+  </data>
+  <data name="KVE_ErrRowPrefix" xml:space="preserve">
+    <value>第 {0} 行：{1}</value>
+    <comment>{0}=行号 {1}=具体错误</comment>
+  </data>
+  <data name="KVE_StatusFormat" xml:space="preserve">
+    <value>共 {0} 条，已填写 {1} 条</value>
+    <comment>{0}=总数 {1}=已填</comment>
+  </data>
+</root>
