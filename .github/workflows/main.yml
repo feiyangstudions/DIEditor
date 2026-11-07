@@ -21,8 +21,10 @@ concurrency:
 env:
   APP_NAME: DIEditor
   PROJECT: DIEditor/DIEditor.csproj
-  # 必须与 csproj 的 <TargetFramework> 主版本一致
+  # 必须与 csproj 的 <TargetFramework> 主版本一致：net8.0 → 8.0.x，net9.0 → 9.0.x
   DOTNET_VERSION: "10.0.x"
+  # Inno Setup 版本。升版本只改这一行，tag 会自动推导（7.1.1 → is-7_1_1）
+  INNO_VERSION: "7.1.1"
 
 jobs:
   # ─────────── 1. 版本号 + 工程定位 ───────────
@@ -32,6 +34,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       numversion: ${{ steps.ver.outputs.numversion }}
       tag: ${{ steps.ver.outputs.tag }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
       project: ${{ steps.find.outputs.project }}
       platforms: ${{ steps.find.outputs.platforms }}
     steps:
@@ -40,11 +43,16 @@ jobs:
       - name: Resolve version
         id: ver
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RAW="${{ inputs.version }}"
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            RAW="$INPUT_VERSION"
           else
-            RAW="${{ github.ref_name }}"
+            RAW="$REF_NAME"
           fi
 
           if [ -z "$RAW" ]; then
@@ -56,14 +64,23 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
 
+          # 预发布标记：版本号里带 - 或 +
+          if [[ "$V" == *-* || "$V" == *+* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 剥掉后缀，补成四段，供 VersionInfoVersion / MSBuild 使用
           NUM="${V%%-*}"
           NUM="${NUM%%+*}"
-          IFS='.' read -r a b c <<< "$NUM"
+          IFS='.' read -r a b c _rest <<< "$NUM"
           NUMVER="${a:-0}.${b:-0}.${c:-0}.0"
           echo "numversion=$NUMVER" >> "$GITHUB_OUTPUT"
 
           echo "版本: $V"
           echo "文件版本: $NUMVER"
+          echo "预发布: $([[ "$V" == *-* || "$V" == *+* ]] && echo 是 || echo 否)"
 
       - name: Locate csproj and platforms
         id: find
@@ -95,7 +112,7 @@ jobs:
             props="$props$(cat Directory.Build.props)"
           fi
           plats=$(printf '%s' "$props" \
-                  | tr -d '\r\n' \
+                  | tr -d '\n\r' \
                   | grep -o '<Platforms>[^<]*</Platforms>' \
                   | head -n1 | sed -E 's#</?Platforms>##g' || true)
           echo "platforms=$plats" >> "$GITHUB_OUTPUT"
@@ -139,6 +156,7 @@ jobs:
         env:
           PROJECT: ${{ needs.prepare.outputs.project }}
           PLATFORMS: ${{ needs.prepare.outputs.platforms }}
+          NUMVER: ${{ needs.prepare.outputs.numversion }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE "publish/${{ matrix.rid }}"
           if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
@@ -152,6 +170,9 @@ jobs:
             "/p:RuntimeIdentifier=${{ matrix.rid }}",
             "/p:SelfContained=true",
             "/p:WindowsAppSDKSelfContained=true",
+            "/p:Version=$env:NUMVER",
+            "/p:FileVersion=$env:NUMVER",
+            "/p:AssemblyVersion=$env:NUMVER",
             "/p:PublishDir=$out/"
           )
 
@@ -192,79 +213,59 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\InnoSetup
-          key: innosetup-${{ runner.os }}-v2
+          key: innosetup-${{ env.INNO_VERSION }}-x64
 
-      - name: Install Inno Setup
+      - name: Install Inno Setup ${{ env.INNO_VERSION }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $dir  = "C:\InnoSetup"
           $iscc = Join-Path $dir "ISCC.exe"
+          $want = (($env:INNO_VERSION -split '\.')[0..1] -join '.')
+          $tag  = "is-" + ($env:INNO_VERSION -replace '\.', '_')
 
-          function Find-Iscc {
-            $c = @($iscc)
-            $c += (Get-ChildItem "$env:ProgramFiles\Inno Setup*\ISCC.exe"          -ErrorAction SilentlyContinue).FullName
-            $c += (Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe"   -ErrorAction SilentlyContinue).FullName
-            $c += (Get-ChildItem "$env:LOCALAPPDATA\Programs\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue).FullName
-            $c | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          function Get-IsccVer([string]$p) {
+            if (-not (Test-Path -LiteralPath $p)) { return $null }
+            $v = (& $p --version 2>$null | Select-Object -First 1)
+            if (-not $v) { $v = (Get-Item -LiteralPath $p).VersionInfo.FileVersion }
+            if ($v -and $v -match '(\d+\.\d+(?:\.\d+)?)') { return $Matches[1] }
+            return $null
           }
 
-          function Test-PEFile {
-            param([string]$Path)
-            if (-not (Test-Path -LiteralPath $Path)) { return $false }
-            if ((Get-Item -LiteralPath $Path).Length -lt 1MB) { return $false }
-            $fs = [IO.File]::OpenRead($Path)
+          $ver = Get-IsccVer $iscc
+          $got = if ($ver) { ($ver -split '\.')[0..1] -join '.' } else { $null }
+
+          if ($got -eq $want) {
+            Write-Host "缓存命中: $iscc (v$ver)"
+          } else {
+            Write-Host "安装 Inno Setup $env:INNO_VERSION"
+            if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+
+            $url   = "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$env:INNO_VERSION-x64.exe"
+            $setup = Join-Path $env:RUNNER_TEMP "innosetup.exe"
+            Write-Host "下载 $url"
+            Invoke-WebRequest -Uri $url -OutFile $setup -UseBasicParsing
+
+            $fs = [IO.File]::OpenRead($setup)
             try {
               $b = New-Object byte[] 2
               [void]$fs.Read($b, 0, 2)
-              return ($b[0] -eq 0x4D -and $b[1] -eq 0x5A)
+              if ($b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw "下载的不是有效 PE，可能被代理拦截返回了 HTML" }
             } finally { $fs.Dispose() }
-          }
 
-          $hit = Find-Iscc
-          if ($hit) { Write-Host "缓存命中: $hit" }
-
-          if (-not $hit) {
-            Write-Host "尝试 winget 安装..."
-            & winget install --id JRSoftware.InnoSetup --exact --silent `
-                --accept-package-agreements --accept-source-agreements `
-                --disable-interactivity
-            Write-Host "winget 退出码: $LASTEXITCODE"
-            $hit = Find-Iscc
-          }
-
-          if (-not $hit) {
-            Write-Host "从 GitHub Releases 获取官方安装包..."
-            $headers = @{ "User-Agent" = "DIEditor-CI"; "Accept" = "application/vnd.github+json" }
-            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/jrsoftware/issrc/releases/latest" -Headers $headers
-
-            $asset = $rel.assets | Where-Object { $_.name -match '^innosetup-[\d.]+-x64\.exe$' } | Select-Object -First 1
-            if (-not $asset) {
-              $asset = $rel.assets | Where-Object { $_.name -match '^innosetup-[\d.]+\.exe$' } | Select-Object -First 1
-            }
-            if (-not $asset) { throw "在 $($rel.tag_name) 中未找到 innosetup 安装包资源" }
-
-            $setup = Join-Path $env:RUNNER_TEMP "innosetup.exe"
-            Write-Host "下载 $($asset.name)（$([math]::Round($asset.size/1MB,1)) MB）"
-            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $setup -UseBasicParsing
-
-            if (-not (Test-PEFile -Path $setup)) {
-              $kb = [math]::Round((Get-Item -LiteralPath $setup).Length / 1KB, 1)
-              throw "下载的文件不是有效 PE（$kb KB），大概率被代理拦截后返回了 HTML 页面"
-            }
-
-            $p = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
+            $proc = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
               "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$dir"
             )
-            Write-Host "安装器退出码: $($p.ExitCode)"
-            $hit = Find-Iscc
+            if ($proc.ExitCode -ne 0) { throw "安装器退出码 $($proc.ExitCode)" }
+
+            $ver = Get-IsccVer $iscc
+            $got = if ($ver) { ($ver -split '\.')[0..1] -join '.' } else { $null }
           }
 
-          if (-not $hit) { throw "Inno Setup 安装失败，任何位置都没有可用 ISCC.exe" }
+          if ($got -ne $want) { throw "版本不符：期望 $($want).x，实际 $ver" }
 
-          "ISCC=$hit" >> $env:GITHUB_ENV
-          Write-Host "ISCC: $hit"
-          Write-Host "大小: $([math]::Round((Get-Item -LiteralPath $hit).Length / 1MB, 2)) MB"
+          "ISCC=$iscc" >> $env:GITHUB_ENV
+          Write-Host "ISCC: $iscc (v$ver)"
 
       - name: Build installer (${{ matrix.app_arch }})
         shell: pwsh
@@ -306,6 +307,7 @@ jobs:
         env:
           PROJECT: ${{ needs.prepare.outputs.project }}
           PLATFORMS: ${{ needs.prepare.outputs.platforms }}
+          NUMVER: ${{ needs.prepare.outputs.numversion }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
           if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
@@ -325,6 +327,9 @@ jobs:
             "/p:PublishSingleFile=true",
             "/p:PublishTrimmed=false",
             "/p:PublishReadyToRun=false",
+            "/p:Version=$env:NUMVER",
+            "/p:FileVersion=$env:NUMVER",
+            "/p:AssemblyVersion=$env:NUMVER",
             "/p:PublishDir=$out/"
           )
 
@@ -384,8 +389,20 @@ jobs:
           name: ${{ needs.prepare.outputs.tag }}
           target_commitish: ${{ github.sha }}
           draft: true
-          prerelease: false
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
           generate_release_notes: false
+          fail_on_unmatched_files: true
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report result
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "草稿地址: https://github.com/${{ github.repository }}/releases"
+            echo "正式发布: gh release edit ${{ needs.prepare.outputs.tag }} --draft=false"
+          else
+            echo "::error::Release 创建失败，检查上方日志中的 403 或 unmatched files"
+          fi
