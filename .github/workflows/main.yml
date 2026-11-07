@@ -21,8 +21,7 @@ concurrency:
 env:
   APP_NAME: DIEditor
   PROJECT: DIEditor/DIEditor.csproj
-  # 必须与 csproj 的 <TargetFramework> 主版本一致：
-  # net8.0 → 8.0.x    net9.0 → 9.0.x    net10.0 → 10.0.x
+  # 必须与 csproj 的 <TargetFramework> 主版本一致
   DOTNET_VERSION: "10.0.x"
 
 jobs:
@@ -57,7 +56,6 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
 
-          # 剥掉预发布后缀和构建元数据，补成四段，供 VersionInfoVersion 使用
           NUM="${V%%-*}"
           NUM="${NUM%%+*}"
           IFS='.' read -r a b c <<< "$NUM"
@@ -97,7 +95,7 @@ jobs:
             props="$props$(cat Directory.Build.props)"
           fi
           plats=$(printf '%s' "$props" \
-                  | tr -d '\n' \
+                  | tr -d '\r\n' \
                   | grep -o '<Platforms>[^<]*</Platforms>' \
                   | head -n1 | sed -E 's#</?Platforms>##g' || true)
           echo "platforms=$plats" >> "$GITHUB_OUTPUT"
@@ -194,44 +192,79 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\InnoSetup
-          key: innosetup-${{ runner.os }}-v1
+          key: innosetup-${{ runner.os }}-v2
 
       - name: Install Inno Setup
         shell: pwsh
         run: |
-          $dir = "C:\InnoSetup"
+          $ErrorActionPreference = "Stop"
+          $dir  = "C:\InnoSetup"
           $iscc = Join-Path $dir "ISCC.exe"
 
-          if (-not (Test-Path -LiteralPath $iscc)) {
-            Write-Host "安装 Inno Setup 到 $dir ..."
+          function Find-Iscc {
+            $c = @($iscc)
+            $c += (Get-ChildItem "$env:ProgramFiles\Inno Setup*\ISCC.exe"          -ErrorAction SilentlyContinue).FullName
+            $c += (Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe"   -ErrorAction SilentlyContinue).FullName
+            $c += (Get-ChildItem "$env:LOCALAPPDATA\Programs\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue).FullName
+            $c | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          }
+
+          function Test-PEFile {
+            param([string]$Path)
+            if (-not (Test-Path -LiteralPath $Path)) { return $false }
+            if ((Get-Item -LiteralPath $Path).Length -lt 1MB) { return $false }
+            $fs = [IO.File]::OpenRead($Path)
+            try {
+              $b = New-Object byte[] 2
+              [void]$fs.Read($b, 0, 2)
+              return ($b[0] -eq 0x4D -and $b[1] -eq 0x5A)
+            } finally { $fs.Dispose() }
+          }
+
+          $hit = Find-Iscc
+          if ($hit) { Write-Host "缓存命中: $hit" }
+
+          if (-not $hit) {
+            Write-Host "尝试 winget 安装..."
+            & winget install --id JRSoftware.InnoSetup --exact --silent `
+                --accept-package-agreements --accept-source-agreements `
+                --disable-interactivity
+            Write-Host "winget 退出码: $LASTEXITCODE"
+            $hit = Find-Iscc
+          }
+
+          if (-not $hit) {
+            Write-Host "从 GitHub Releases 获取官方安装包..."
+            $headers = @{ "User-Agent" = "DIEditor-CI"; "Accept" = "application/vnd.github+json" }
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/jrsoftware/issrc/releases/latest" -Headers $headers
+
+            $asset = $rel.assets | Where-Object { $_.name -match '^innosetup-[\d.]+-x64\.exe$' } | Select-Object -First 1
+            if (-not $asset) {
+              $asset = $rel.assets | Where-Object { $_.name -match '^innosetup-[\d.]+\.exe$' } | Select-Object -First 1
+            }
+            if (-not $asset) { throw "在 $($rel.tag_name) 中未找到 innosetup 安装包资源" }
+
             $setup = Join-Path $env:RUNNER_TEMP "innosetup.exe"
-            Invoke-WebRequest "https://jrsoftware.org/download.php/is.exe?dontcount=1" `
-              -OutFile $setup -UseBasicParsing
+            Write-Host "下载 $($asset.name)（$([math]::Round($asset.size/1MB,1)) MB）"
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $setup -UseBasicParsing
+
+            if (-not (Test-PEFile -Path $setup)) {
+              $kb = [math]::Round((Get-Item -LiteralPath $setup).Length / 1KB, 1)
+              throw "下载的文件不是有效 PE（$kb KB），大概率被代理拦截后返回了 HTML 页面"
+            }
 
             $p = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
               "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$dir"
             )
             Write-Host "安装器退出码: $($p.ExitCode)"
+            $hit = Find-Iscc
           }
 
-          if (-not (Test-Path -LiteralPath $iscc)) {
-            Write-Host "固定目录未命中，开始兜底搜索..."
-            $found = @(
-              "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
-              "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
-              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
-              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-              "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe",
-              "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
-            ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $hit) { throw "Inno Setup 安装失败，任何位置都没有可用 ISCC.exe" }
 
-            if (-not $found) { throw "Inno Setup 安装失败，ISCC.exe 不存在" }
-            $iscc = $found
-          }
-
-          "ISCC=$iscc" >> $env:GITHUB_ENV
-          Write-Host "ISCC: $iscc"
-          Write-Host "大小: $([math]::Round((Get-Item -LiteralPath $iscc).Length / 1MB, 2)) MB"
+          "ISCC=$hit" >> $env:GITHUB_ENV
+          Write-Host "ISCC: $hit"
+          Write-Host "大小: $([math]::Round((Get-Item -LiteralPath $hit).Length / 1MB, 2)) MB"
 
       - name: Build installer (${{ matrix.app_arch }})
         shell: pwsh
