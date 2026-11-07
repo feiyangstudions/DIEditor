@@ -45,6 +45,7 @@ ArchitecturesInstallIn64BitMode={#InnoArch}
 UninstallDisplayIcon={app}\DIEditor.exe
 ; 四段纯数字，不能用 1.2.0-beta 这类带后缀的版本
 VersionInfoVersion={#AppVersion4}
+; 版本资源写在 exe 文件属性里，无法随安装语言切换，所有用户看到的是同一串文字
 VersionInfoCompany=个人开发者
 VersionInfoDescription=DIEditor Setup
 VersionInfoProductName=DIEditor
@@ -53,15 +54,43 @@ PrivilegesRequiredOverridesAllowed=dialog
 ; 有图标就放开下面这行，路径相对于本 iss 文件
 ; SetupIconFile=..\DIEditor\Assets\app.ico
 
+[Languages]
+; 一次性生成全部官方语言（含英文）的完整 [Languages] 段，不要另写段头。
+; 展开结果见 IDE 的 Preprocessor Output 标签页；语言内部名由 .isl 文件名小写生成，
+; 例如 ChineseSimplified.isl -> chinesesimplified，German.isl -> german。
+#call EmitLanguagesSection
+
+[CustomMessages]
+; 不带语言前缀 = 所有语言的默认值（英文）；再用“语言名.”前缀覆盖个别语言。
+; 注意：前缀必须与 [Languages] 中的 Name 完全一致，写错会导致编译直接报错。
+AdditionalTasks=Additional tasks:
+chinesesimplified.AdditionalTasks=附加任务：
+chinesetraditional.AdditionalTasks=附加工作：
+japanese.AdditionalTasks=追加タスク：
+korean.AdditionalTasks=추가 작업:
+german.AdditionalTasks=Zusätzliche Aufgaben:
+french.AdditionalTasks=Tâches supplémentaires :
+spanish.AdditionalTasks=Tareas adicionales:
+russian.AdditionalTasks=Дополнительные задачи:
+portuguese.AdditionalTasks=Tarefas adicionais:
+brazilianportuguese.AdditionalTasks=Tarefas adicionais:
+italian.AdditionalTasks=Attività aggiuntive:
+dutch.AdditionalTasks=Extra taken:
+polish.AdditionalTasks=Dodatkowe zadania:
+turkish.AdditionalTasks=Ek görevler:
+ukrainian.AdditionalTasks=Додаткові завдання:
+
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："; Flags: unchecked
+; CreateDesktopIcon 是 Inno Setup 内置消息，官方 .isl 已为每种语言翻译好，不必自己写
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalTasks}"; Flags: unchecked
 
 [Icons]
 Name: "{autoprograms}\DIEditor"; Filename: "{app}\DIEditor.exe"
 Name: "{autodesktop}\DIEditor"; Filename: "{app}\DIEditor.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\DIEditor.exe"; Description: "启动 DIEditor"; Flags: nowait postinstall skipifsilent
+; LaunchProgram 同样是内置消息，值为 "Launch %1" 及其各语言译文
+Filename: "{app}\DIEditor.exe"; Description: "{cm:LaunchProgram,DIEditor}"; Flags: nowait postinstall skipifsilent
