@@ -14,21 +14,24 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   APP_NAME: DIEditor
-  # 主工程 csproj 路径（相对仓库根目录）。
-  # 常见写法：DIEditor/DIEditor.csproj 或 DIEditor.csproj
-  # 写错了也没关系，prepare 会自动探测。
   PROJECT: DIEditor/DIEditor.csproj
-  # 对齐 csproj 里的 TargetFramework：net8.0 → 8.0.x，net9.0 → 9.0.x，net10.0 → 10.0.x
+  # 必须与 csproj 的 <TargetFramework> 主版本一致：
+  # net8.0 → 8.0.x    net9.0 → 9.0.x    net10.0 → 10.0.x
   DOTNET_VERSION: "10.0.x"
 
 jobs:
-  # ─────────────── 1. 版本号 + 工程定位 ───────────────
+  # ─────────── 1. 版本号 + 工程定位 ───────────
   prepare:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      numversion: ${{ steps.ver.outputs.numversion }}
       tag: ${{ steps.ver.outputs.tag }}
       project: ${{ steps.find.outputs.project }}
       platforms: ${{ steps.find.outputs.platforms }}
@@ -39,11 +42,30 @@ jobs:
         id: ver
         shell: bash
         run: |
-          RAW="${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RAW="${{ inputs.version }}"
+          else
+            RAW="${{ github.ref_name }}"
+          fi
+
+          if [ -z "$RAW" ]; then
+            echo "::error::版本号为空"
+            exit 1
+          fi
+
           V="${RAW#v}"
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
+
+          # 剥掉预发布后缀和构建元数据，补成四段，供 VersionInfoVersion 使用
+          NUM="${V%%-*}"
+          NUM="${NUM%%+*}"
+          IFS='.' read -r a b c <<< "$NUM"
+          NUMVER="${a:-0}.${b:-0}.${c:-0}.0"
+          echo "numversion=$NUMVER" >> "$GITHUB_OUTPUT"
+
           echo "版本: $V"
+          echo "文件版本: $NUMVER"
 
       - name: Locate csproj and platforms
         id: find
@@ -57,13 +79,13 @@ jobs:
           done
 
           if [ -z "$p" ]; then
-            echo "给定路径不存在，开始按内容探测 WinUI 主工程..."
+            echo "给定路径不存在，按内容探测 WinUI 主工程..."
             p=$(grep -rl --include='*.csproj' -E 'UseWinUI|WindowsAppSDK' . \
                  | grep -v '/bin/' | grep -v '/obj/' | head -n1 || true)
           fi
 
           if [ -z "$p" ]; then
-            echo "::error::找不到 WinUI 主工程，请把 env.PROJECT 改成实际的 csproj 路径"
+            echo "::error::找不到 WinUI 主工程，请修改 env.PROJECT"
             exit 1
           fi
 
@@ -75,6 +97,7 @@ jobs:
             props="$props$(cat Directory.Build.props)"
           fi
           plats=$(printf '%s' "$props" \
+                  | tr -d '\n' \
                   | grep -o '<Platforms>[^<]*</Platforms>' \
                   | head -n1 | sed -E 's#</?Platforms>##g' || true)
           echo "platforms=$plats" >> "$GITHUB_OUTPUT"
@@ -82,7 +105,7 @@ jobs:
           echo "主工程: $p"
           echo "Platforms: ${plats:-（未声明，构建时不传 /p:Platform）}"
 
-  # ─────────────── 2. 三个架构 + 三个安装包 ───────────────
+  # ─────────── 2. 三架构 + 三个安装包 ───────────
   build:
     needs: prepare
     runs-on: windows-latest
@@ -113,13 +136,14 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Publish DIEditor (${{ matrix.app_arch }})
+      - name: Publish ${{ env.APP_NAME }} (${{ matrix.app_arch }})
         shell: pwsh
         env:
           PROJECT: ${{ needs.prepare.outputs.project }}
           PLATFORMS: ${{ needs.prepare.outputs.platforms }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE "publish/${{ matrix.rid }}"
+          if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
           $a = @(
@@ -133,12 +157,16 @@ jobs:
             "/p:PublishDir=$out/"
           )
 
-          $declared = $env:PLATFORMS -split ';' | ForEach-Object { $_.Trim() }
+          $declared = @()
+          if ($env:PLATFORMS) {
+            $declared = @($env:PLATFORMS -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+          }
+
           if ($declared -contains "${{ matrix.platform }}") {
             $a += "/p:Platform=${{ matrix.platform }}"
-            Write-Host "平台: ${{ matrix.platform }}"
+            Write-Host "Platform: ${{ matrix.platform }}"
           } else {
-            Write-Host "工程未声明 ${{ matrix.platform }} 平台，跳过 /p:Platform"
+            Write-Host "工程未声明 ${{ matrix.platform }}，仅靠 RuntimeIdentifier 决定架构"
           }
 
           & msbuild @a
@@ -147,49 +175,70 @@ jobs:
       - name: Verify output
         shell: pwsh
         run: |
-          $exe = Join-Path $env:GITHUB_WORKSPACE "publish/${{ matrix.rid }}/${env:APP_NAME}.exe"
-          if (-not (Test-Path $exe)) { throw "找不到 $exe，请核对 csproj 的 AssemblyName" }
-          $size = [math]::Round((Get-ChildItem (Split-Path $exe) -Recurse |
-                   Measure-Object Length -Sum).Sum / 1MB, 1)
-          Write-Host "产物大小: $size MB"
+          $dir = Join-Path $env:GITHUB_WORKSPACE "publish/${{ matrix.rid }}"
+          $exe = Join-Path $dir "${env:APP_NAME}.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "找不到 $exe，请核对 AssemblyName" }
 
-      - name: Locate Inno Setup
+          $files = Get-ChildItem -LiteralPath $dir -Recurse -File
+          $mb = [math]::Round((($files | Measure-Object Length -Sum).Sum) / 1MB, 1)
+          Write-Host "文件数: $($files.Count)，总大小: $mb MB"
+
+          if ($mb -lt 60) {
+            Write-Host "::warning::体积偏小，SelfContained 或 WindowsAppSDKSelfContained 可能未生效"
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $dir "resources.pri"))) {
+            Write-Host "::warning::缺少 resources.pri，界面文字可能显示异常"
+          }
+
+      - name: Cache Inno Setup
+        uses: actions/cache@v4
+        with:
+          path: C:\InnoSetup
+          key: innosetup-${{ runner.os }}-v1
+
+      - name: Install Inno Setup
         shell: pwsh
         run: |
-          function Find-Iscc {
-            @(
+          $dir = "C:\InnoSetup"
+          $iscc = Join-Path $dir "ISCC.exe"
+
+          if (-not (Test-Path -LiteralPath $iscc)) {
+            Write-Host "安装 Inno Setup 到 $dir ..."
+            $setup = Join-Path $env:RUNNER_TEMP "innosetup.exe"
+            Invoke-WebRequest "https://jrsoftware.org/download.php/is.exe?dontcount=1" `
+              -OutFile $setup -UseBasicParsing
+
+            $p = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
+              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$dir"
+            )
+            Write-Host "安装器退出码: $($p.ExitCode)"
+          }
+
+          if (-not (Test-Path -LiteralPath $iscc)) {
+            Write-Host "固定目录未命中，开始兜底搜索..."
+            $found = @(
               "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
               "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
               "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
               "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
               "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe",
               "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
-            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-          }
+            ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 
-          $iscc = Find-Iscc
-          if (-not $iscc) {
-            Write-Host "未检测到 Inno Setup，开始静默安装..."
-            $exe = Join-Path $env:RUNNER_TEMP "innosetup.exe"
-            Invoke-WebRequest "https://jrsoftware.org/download.php/is.exe?dontcount=1" -OutFile $exe -UseBasicParsing
-            Start-Process $exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait
-            $iscc = Find-Iscc
-          }
-          if (-not $iscc) { throw "找不到 ISCC.exe，Inno Setup 安装失败" }
-
-          $ver = [version]((Get-Item $iscc).VersionInfo.ProductVersion -split '\s+')[0]
-          if ($ver -lt [version]"6.3") {
-            throw "Inno Setup 版本过低（$ver）：arm64 架构标识需要 6.3 及以上"
+            if (-not $found) { throw "Inno Setup 安装失败，ISCC.exe 不存在" }
+            $iscc = $found
           }
 
           "ISCC=$iscc" >> $env:GITHUB_ENV
-          Write-Host "编译器: $iscc (v$ver)"
+          Write-Host "ISCC: $iscc"
+          Write-Host "大小: $([math]::Round((Get-Item -LiteralPath $iscc).Length / 1MB, 2)) MB"
 
-      - name: Build DIEditor installer
+      - name: Build installer (${{ matrix.app_arch }})
         shell: pwsh
         run: |
           & $env:ISCC `
             "/DAppVersion=${{ needs.prepare.outputs.version }}" `
+            "/DAppVersion4=${{ needs.prepare.outputs.numversion }}" `
             "/DSourceDir=$env:GITHUB_WORKSPACE\publish\${{ matrix.rid }}" `
             "/DOutputDir=$env:GITHUB_WORKSPACE\dist" `
             "/DAppArch=${{ matrix.app_arch }}" `
@@ -204,7 +253,7 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
-  # ─────────────── 3. x64 单文件便携版 ───────────────
+  # ─────────── 3. x64 单文件便携版 ───────────
   portable:
     needs: prepare
     runs-on: windows-latest
@@ -226,6 +275,7 @@ jobs:
           PLATFORMS: ${{ needs.prepare.outputs.platforms }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
+          if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
           $a = @(
@@ -238,13 +288,17 @@ jobs:
             "/p:WindowsAppSDKSelfContained=true",
             "/p:EnableMsixTooling=true",
             "/p:IncludeAllContentForSelfExtract=true",
+            "/p:IncludeNativeLibrariesForSelfExtract=true",
             "/p:PublishSingleFile=true",
             "/p:PublishTrimmed=false",
             "/p:PublishReadyToRun=false",
             "/p:PublishDir=$out/"
           )
 
-          $declared = $env:PLATFORMS -split ';' | ForEach-Object { $_.Trim() }
+          $declared = @()
+          if ($env:PLATFORMS) {
+            $declared = @($env:PLATFORMS -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+          }
           if ($declared -contains "x64") { $a += "/p:Platform=x64" }
 
           & msbuild @a
@@ -255,10 +309,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE/dist" | Out-Null
           $src = Join-Path $env:GITHUB_WORKSPACE "publish/portable/${env:APP_NAME}.exe"
-          if (-not (Test-Path $src)) { throw "单文件发布没有产出 ${env:APP_NAME}.exe" }
+          if (-not (Test-Path -LiteralPath $src)) { throw "单文件发布没有产出 ${env:APP_NAME}.exe" }
+
           $dst = "$env:GITHUB_WORKSPACE/dist/${env:APP_NAME}-${{ needs.prepare.outputs.version }}-x64-portable.exe"
-          Copy-Item $src $dst
-          $mb = [math]::Round((Get-Item $dst).Length / 1MB, 1)
+          Copy-Item -LiteralPath $src -Destination $dst -Force
+
+          $mb = [math]::Round((Get-Item -LiteralPath $dst).Length / 1MB, 1)
           Write-Host "便携版: $dst ($mb MB)"
 
       - name: Upload portable
@@ -268,7 +324,7 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
-  # ─────────────── 4. 汇总成草稿 Release ───────────────
+  # ─────────── 4. 汇总成草稿 Release ───────────
   release:
     needs: [prepare, build, portable]
     runs-on: ubuntu-latest
@@ -280,9 +336,15 @@ jobs:
           merge-multiple: true
 
       - name: List files
-        run: ls -lh dist
+        run: |
+          ls -lh dist
+          count=$(ls dist/*.exe 2>/dev/null | wc -l)
+          echo "共 $count 个附件"
+          if [ "$count" -ne 4 ]; then
+            echo "::warning::期望 4 个附件，实际 $count 个"
+          fi
 
-      - name: Create draft release (body left empty)
+      - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
