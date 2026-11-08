@@ -16,6 +16,7 @@
             } }
         public int CustomIconIndex { get; set; }
         public string CustomTooltip { get; set; }
+        public string AdvancedSettings { get; set; }
         public bool HasCustomTooltip
         {
             get
@@ -30,6 +31,14 @@
             get
             {
                 if (CustomFileName.Count == 0 || CustomFileName == null) return false;
+                else return true;
+            }
+        }
+        public bool HasAdvancedSettings
+        {
+            get
+            {
+                if (AdvancedSettings == string.Empty || AdvancedSettings == null) return false;
                 else return true;
             }
         }

@@ -194,6 +194,7 @@ namespace DIEditor
             DIHiddenCheckBox.IsEnabled = true;
             DISystemCheckBox.IsEnabled = true;
             DIEncodingComboBox.IsEnabled = true;
+            AdvancedSettingsTextBox.IsEnabled = true;
         }
 
         private void ResetEditor()
@@ -225,12 +226,16 @@ namespace DIEditor
             CustomFileNameEditor.ClearItems();
             CustomFileNameEditor.IsEnabled = false;
 
-            // 输出
-            DIPreviewTextBox.Text = string.Empty;
-            DIPreviewTextBox.IsEnabled = false;
+            // 高级选项
             DIHiddenCheckBox.IsEnabled = false;
             DISystemCheckBox.IsEnabled = false;
             DIEncodingComboBox.IsEnabled = false;
+            AdvancedSettingsTextBox.IsEnabled = false;
+            AdvancedSettingsTextBox.Text = string.Empty;
+
+            // 输出
+            DIPreviewTextBox.Text = string.Empty;
+            DIPreviewTextBox.IsEnabled = false;
             GenerateButton.IsEnabled = false;
             SaveButton.IsEnabled = false;
             _diGenerated = false;
@@ -266,6 +271,11 @@ namespace DIEditor
                 CustomFileNameEditor.LoadFromDictionary(content.CustomFileName);
                 CustomFileNameCheckBox.IsChecked = true;
             }
+
+            if (content.HasAdvancedSettings)
+            {
+                AdvancedSettingsTextBox.Text = content.AdvancedSettings;
+            }
         }
 
         private async void GenerateButton_Click(object sender, RoutedEventArgs e)
@@ -291,6 +301,7 @@ namespace DIEditor
             dic.CustomTooltip = Gen(CustomTooltipCheckBox.IsChecked, CustomTooltipTextBox.Text);
             dic.SystemFileAttribDisabled = DISystemCheckBox.IsChecked == true ? false : true;
             dic.HiddenFileAttribDisabled = DIHiddenCheckBox.IsChecked == true ? false : true;
+            dic.AdvancedSettings = AdvancedSettingsTextBox.Text;
             if (CustomFileNameCheckBox.IsChecked == true)
             {
                 Dictionary<string, string> keyValuePairs;

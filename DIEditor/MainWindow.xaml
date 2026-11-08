@@ -132,6 +132,7 @@
                        IsEnabled="False"/>
                     </Grid>
                 </Grid>
+                <!-- 第3行-高级选项 -->
                 <StackPanel Grid.Row="2" Padding="15" CornerRadius="8" VerticalAlignment="Top"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <TextBlock x:Uid="AdvancedOptions" FontWeight="Bold"/>
@@ -145,6 +146,10 @@
                         <ComboBoxItem x:Uid="EncodingUtf16LE"/>
                         <ComboBoxItem x:Uid="EncodingAnsi"/>
                     </ComboBox>
+                    <TextBox x:Name="AdvancedSettingsTextBox" x:Uid="AdvancedSettingsTextBox"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             IsEnabled="False"/>
                 </StackPanel>
                 <!-- 第4行-生成与保存 -->
                 <Grid Grid.Row="3" RowSpacing="10" Padding="15" CornerRadius="8" VerticalAlignment="Top"

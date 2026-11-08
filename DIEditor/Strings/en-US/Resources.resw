@@ -249,4 +249,10 @@
   <data name="ClearDirDIButton.Content" xml:space="preserve">
     <value>Clear desktop.ini of selected folder</value>
   </data>
+  <data name="AdvancedSettingsTextBox.Header" xml:space="preserve">
+    <value>Advanced Settings (If you are not familiar with this feature and do not use this file in other software, please leave it blank):</value>
+  </data>
+  <data name="AdvancedSettingsTextBox.PlaceholderText" xml:space="preserve">
+    <value>The content here will be directly written into desktop.ini</value>
+  </data>
 </root>

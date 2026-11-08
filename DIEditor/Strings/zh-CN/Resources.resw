@@ -293,4 +293,12 @@
     <value>清除选定文件夹的 desktop.ini</value>
     <comment>删除desktop.ini</comment>
   </data>
+  <data name="AdvancedSettingsTextBox.Header" xml:space="preserve">
+    <value>高级设置（不了解且其他软件不使用该文件请留空）:</value>
+    <comment>高级设置输入框</comment>
+  </data>
+  <data name="AdvancedSettingsTextBox.PlaceholderText" xml:space="preserve">
+    <value>此处的内容将被直接写入desktop.ini</value>
+    <comment>高级设置输入框占位符</comment>
+  </data>
 </root>

@@ -69,6 +69,18 @@
     <Reference Include="FToolkit.WinUI3.Windows">
       <HintPath>..\externals\FToolkit\FToolkit.WinUI3.Windows.dll</HintPath>
     </Reference>
+    <Reference Include="PInvoke.Kernel32">
+      <HintPath>..\externals\FToolkit\PInvoke.Kernel32.dll</HintPath>
+    </Reference>
+    <Reference Include="PInvoke.User32">
+      <HintPath>..\externals\FToolkit\PInvoke.User32.dll</HintPath>
+    </Reference>
+    <Reference Include="PInvoke.Windows.Core">
+      <HintPath>..\externals\FToolkit\PInvoke.Windows.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="PInvoke.Windows.ShellScalingApi">
+      <HintPath>..\externals\FToolkit\PInvoke.Windows.ShellScalingApi.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Page Update="Controls\KeyValueEditor.xaml">

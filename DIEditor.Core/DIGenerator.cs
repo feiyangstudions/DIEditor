@@ -25,6 +25,8 @@ namespace DIEditor.Core
                     sb.AppendLine($"{keyValuePair.Key}={keyValuePair.Value}");
                 }
             }
+            // 高级选项
+            if (content.HasAdvancedSettings) sb.AppendLine(content.AdvancedSettings);
             return sb.ToString();
         }
     }
