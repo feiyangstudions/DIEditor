@@ -21,7 +21,9 @@ concurrency:
 env:
   APP_NAME: DIEditor
   PROJECT: DIEditor/DIEditor.csproj
+  # 必须与 csproj 的 <TargetFramework> 主版本一致
   DOTNET_VERSION: "10.0.x"
+  # Inno Setup 版本，release tag 自动推导（7.1.1 → is-7_1_1）
   INNO_VERSION: "7.1.1"
 
 jobs:
@@ -291,7 +293,7 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
-  # ─────────── 3. x64 便携版：zip + 自解压单文件 ───────────
+  # ─────────── 3. x64 便携版（zip） ───────────
   portable:
     needs: prepare
     runs-on: windows-latest
@@ -312,10 +314,13 @@ jobs:
           PROJECT: ${{ needs.prepare.outputs.project }}
           PLATFORMS: ${{ needs.prepare.outputs.platforms }}
           NUMVER: ${{ needs.prepare.outputs.numversion }}
+          VER: ${{ needs.prepare.outputs.version }}
         run: |
           $ErrorActionPreference = "Stop"
 
-          $out = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
+          # 目录名带版本号：zip 的顶层文件夹会直接沿用这个名字
+          $folder = "${env:APP_NAME}-$($env:VER)-x64-portable"
+          $out = Join-Path $env:GITHUB_WORKSPACE "publish/$folder"
           if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
@@ -344,180 +349,63 @@ jobs:
           & msbuild @args
           if ($LASTEXITCODE -ne 0) { throw "便携版发布失败" }
 
+          "PORTABLE_DIR=$out" >> $env:GITHUB_ENV
+
       - name: Verify portable folder
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $dir = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
+          $dir = $env:PORTABLE_DIR
+          if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { throw "便携版目录不存在: $dir" }
+
           foreach ($f in @("${env:APP_NAME}.exe", "Microsoft.UI.Xaml.dll")) {
             if (-not (Test-Path -LiteralPath (Join-Path $dir $f))) { throw "便携版目录缺少 $f" }
           }
           $pri = @(Get-ChildItem -LiteralPath $dir -Filter *.pri -File -ErrorAction SilentlyContinue)
-          if ($pri.Count -eq 0) { throw "便携版目录没有 pri 资源文件" }
+          if ($pri.Count -eq 0) { throw "便携版目录没有 pri 资源文件，解压后启动会报 0xC000027B" }
 
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE/dist" | Out-Null
 
           $sum = (Get-ChildItem -LiteralPath $dir -Recurse -File | Measure-Object Length -Sum).Sum
           $mb = if ($sum) { [math]::Round($sum / 1MB, 1) } else { 0 }
-          Write-Host "便携版目录: $mb MB"
+          Write-Host "便携版目录: $dir ($mb MB)"
 
       - name: Package portable zip
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $ver = "${{ needs.prepare.outputs.version }}"
-          $zip = Join-Path $env:GITHUB_WORKSPACE "dist/${env:APP_NAME}-$ver-x64-portable.zip"
+          $dir = $env:PORTABLE_DIR
+          $zip = Join-Path $env:GITHUB_WORKSPACE "dist/$((Split-Path $dir -Leaf)).zip"
           if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 
           Add-Type -AssemblyName System.IO.Compression.FileSystem
+          # 第四参为 true：zip 内保留一层同名文件夹，解压后不会散落一地文件
           [IO.Compression.ZipFile]::CreateFromDirectory(
-            (Join-Path $env:GITHUB_WORKSPACE "publish/portable"),
+            $dir,
             $zip,
             [IO.Compression.CompressionLevel]::Optimal,
-            $false)
+            $true)
 
           $mb = [math]::Round((Get-Item -LiteralPath $zip).Length / 1MB, 1)
           Write-Host "便携版 zip: $zip ($mb MB)"
 
-      # 单文件属于尽力而为：失败不影响 zip 与三个安装包交付
-      - name: Build single-exe (7-Zip SFX)
-        continue-on-error: true
-        shell: pwsh
-        env:
-          VER: ${{ needs.prepare.outputs.version }}
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $src = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
-          $out = Join-Path $env:GITHUB_WORKSPACE "dist/${env:APP_NAME}-$($env:VER)-x64-single-exe.exe"
-          $tmp = Join-Path $env:RUNNER_TEMP "sfxbuild"
-
-          $sevenZip = Join-Path $env:ProgramFiles "7-Zip\7z.exe"
-          if (-not (Test-Path -LiteralPath $sevenZip)) {
-            $sevenZip = Join-Path ${env:ProgramFiles(x86)} "7-Zip\7z.exe"
-          }
-          if (-not (Test-Path -LiteralPath $sevenZip)) { throw "runner 上找不到 7z.exe" }
-          $sevenZipDir = Split-Path $sevenZip -Parent
-          Write-Host "7z: $sevenZip"
-          Write-Host "7z 目录内容: $((Get-ChildItem $sevenZipDir -Filter *.sfx | Select-Object -ExpandProperty Name) -join ', ')"
-
-          if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-
-          # ---------- 找“安装器型” SFX 模块 ----------
-          $module = $null
-          $kind = $null
-
-          foreach ($n in @("7zS.sfx","7zSD.sfx","7zS2.sfx","7zS2con.sfx","7zSCon.sfx")) {
-            $c = Join-Path $sevenZipDir $n
-            if (Test-Path -LiteralPath $c) { $module = $c; $kind = "installdir"; break }
-          }
-          if ($module) { Write-Host "模块来源: 安装目录 -> $module" }
-
-          if (-not $module) {
-            Write-Host "安装目录没有安装器型模块，尝试官方 small SFX 包..."
-            try {
-              $pkg = Join-Path $tmp "sfxsmall.7z"
-              Invoke-WebRequest -Uri "https://dl.7-zip.org/7z917a1_sfx.7z" -OutFile $pkg -UseBasicParsing -TimeoutSec 90
-              $x = Join-Path $tmp "small"
-              & $sevenZip x $pkg "-o$x" -y | Out-Null
-              $cand = @(Get-ChildItem -LiteralPath $x -Recurse -File -ErrorAction SilentlyContinue |
-                        Where-Object { $_.Extension -ieq ".sfx" } |
-                        Sort-Object { if ($_.Name -ieq "7zS2.sfx") { 0 } else { 1 } })
-              Write-Host "small 包内: $(if ($cand.Count) { ($cand.Name -join ', ') } else { '无 sfx' })"
-              if ($cand.Count -gt 0) { $module = $cand[0].FullName; $kind = "small-sfx" }
-            } catch {
-              Write-Host "small SFX 包获取失败: $($_.Exception.Message)"
-            }
-          }
-
-          if (-not $module) {
-            Write-Host "尝试 7-Zip Extra 包..."
-            try {
-              $headers = @{ "User-Agent" = "DIEditor-CI"; "Accept" = "application/vnd.github+json" }
-              $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/ip7z/7zip/releases/latest" -Headers $headers
-              $asset = @($rel.assets | Where-Object { $_.name -like "*-extra.7z" }) | Select-Object -First 1
-              if ($asset) {
-                Write-Host "下载 $($asset.name)"
-                $extra = Join-Path $tmp "extra.7z"
-                Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $extra -UseBasicParsing
-                $x = Join-Path $tmp "extra"
-                & $sevenZip x $extra "-o$x" -y | Out-Null
-                $all = @(Get-ChildItem -LiteralPath $x -Recurse -File -ErrorAction SilentlyContinue)
-                Write-Host "Extra 共 $($all.Count) 个文件: $(($all.Name | Select-Object -First 40) -join ', ')"
-                $cand = @($all | Where-Object { $_.Extension -ieq ".sfx" })
-                if ($cand.Count -gt 0) { $module = $cand[0].FullName; $kind = "extra" }
-              }
-            } catch {
-              Write-Host "Extra 获取失败: $($_.Exception.Message)"
-            }
-          }
-
-          if (-not $module) {
-            $c = Join-Path $sevenZipDir "7z.sfx"
-            if (Test-Path -LiteralPath $c) {
-              $module = $c; $kind = "gui-sfx"
-              Write-Host "::warning::回退到 7z.sfx，若双击后不自动启动程序，请改用 zip 分发"
-            }
-          }
-
-          if (-not $module) { throw "找不到任何 SFX 模块" }
-          Write-Host "SFX 模块: $module ($kind)"
-
-          # ---------- config.txt（UTF-8 无 BOM，末尾必须有换行） ----------
-          $cfg = (@(
-            ';!@Install@!UTF-8!'
-            ('Title="' + $env:APP_NAME + ' ' + $env:VER + '"')
-            ('RunProgram="' + $env:APP_NAME + '.exe"')
-            'GUIMode="2"'
-            ';!@InstallEnd@!'
-          ) -join "`r`n") + "`r`n"
-
-          $cfgPath = Join-Path $tmp "config.txt"
-          [IO.File]::WriteAllText($cfgPath, $cfg, (New-Object System.Text.UTF8Encoding($false)))
-
-          # ---------- payload ----------
-          $payload = Join-Path $tmp "payload.7z"
-          Push-Location $src
+          # 校验压缩包内确实有 exe 与 pri
+          $za = [IO.Compression.ZipFile]::OpenRead($zip)
           try {
-            & $sevenZip a -t7z -mx=5 -y $payload ".\*" -r | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "生成 payload 失败（exit $LASTEXITCODE）" }
-          } finally {
-            Pop-Location
-          }
-
-          # ---------- 三段二进制拼接（等价 copy /b，但不依赖模块与 7z.exe 同目录） ----------
-          if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Force }
-
-          $parts = @($module, $cfgPath, $payload)
-          $fs = [IO.File]::Create($out)
-          try {
-            foreach ($p in $parts) {
-              $in = [IO.File]::OpenRead($p)
-              try { $in.CopyTo($fs) } finally { $in.Dispose() }
-            }
-          } finally {
-            $fs.Dispose()
-          }
-
-          $expect = ($parts | ForEach-Object { (Get-Item -LiteralPath $_).Length } | Measure-Object -Sum).Sum
-          $actual = (Get-Item -LiteralPath $out).Length
-          Write-Host "拼接: 期望 $expect 字节，实际 $actual 字节"
-          if ($actual -ne $expect) { throw "拼接结果与预期不一致" }
-
-          $mb = [math]::Round($actual / 1MB, 1)
-          Write-Host "自解压单文件: $out ($mb MB)"
+            $names = $za.Entries | ForEach-Object { $_.FullName }
+            if (-not ($names -match "${env:APP_NAME}\.exe$")) { throw "zip 内没有 ${env:APP_NAME}.exe" }
+            if (-not ($names -match "\.pri$")) { throw "zip 内没有 pri 资源文件" }
+            Write-Host "压缩包条目数: $($names.Count)"
+          } finally { $za.Dispose() }
 
       - name: Upload portable
         uses: actions/upload-artifact@v4
         with:
           name: portable-x64
-          path: |
-            dist/*-portable.zip
-            dist/*-single-exe.exe
-          if-no-files-found: warn
+          path: dist/*-portable.zip
+          if-no-files-found: error
 
   # ─────────── 4. 汇总成草稿 Release ───────────
   release:
@@ -537,18 +425,14 @@ jobs:
 
           setups=$(find dist -maxdepth 1 -name '*-setup.exe' | wc -l)
           zips=$(find dist -maxdepth 1 -name '*-portable.zip' | wc -l)
-          sfx=$(find dist -maxdepth 1 -name '*-single-exe.exe' | wc -l)
 
-          echo "安装包 $setups 个 / 便携 zip $zips 个 / 单文件 $sfx 个"
+          echo "安装包 $setups 个 / 便携 zip $zips 个"
 
           if [ "$setups" -ne 3 ]; then
             echo "::warning::期望 3 个安装包，实际 $setups"
           fi
           if [ "$zips" -ne 1 ]; then
             echo "::warning::期望 1 个便携 zip，实际 $zips"
-          fi
-          if [ "$sfx" -ne 1 ]; then
-            echo "::warning::未生成自解压单文件，zip 版不受影响"
           fi
 
           exit 0
