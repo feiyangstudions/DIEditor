@@ -21,9 +21,9 @@ concurrency:
 env:
   APP_NAME: DIEditor
   PROJECT: DIEditor/DIEditor.csproj
-  # 必须与 csproj 的 <TargetFramework> 主版本一致：net8.0 → 8.0.x，net9.0 → 9.0.x
+  # 必须与 csproj 的 <TargetFramework> 主版本一致
   DOTNET_VERSION: "10.0.x"
-  # Inno Setup 版本。升版本只改这一行，tag 会自动推导（7.1.1 → is-7_1_1）
+  # Inno Setup 版本，release tag 自动推导（7.1.1 → is-7_1_1）
   INNO_VERSION: "7.1.1"
 
 jobs:
@@ -49,6 +49,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             RAW="$INPUT_VERSION"
           else
@@ -64,23 +65,20 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
 
-          # 预发布标记：版本号里带 - 或 +
           if [[ "$V" == *-* || "$V" == *+* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-          # 剥掉后缀，补成四段，供 VersionInfoVersion / MSBuild 使用
           NUM="${V%%-*}"
           NUM="${NUM%%+*}"
-          IFS='.' read -r a b c _rest <<< "$NUM"
+          IFS='.' read -r a b c _rest <<< "$NUM" || true
           NUMVER="${a:-0}.${b:-0}.${c:-0}.0"
           echo "numversion=$NUMVER" >> "$GITHUB_OUTPUT"
 
           echo "版本: $V"
           echo "文件版本: $NUMVER"
-          echo "预发布: $([[ "$V" == *-* || "$V" == *+* ]] && echo 是 || echo 否)"
 
       - name: Locate csproj and platforms
         id: find
@@ -111,10 +109,10 @@ jobs:
           if [ -f Directory.Build.props ]; then
             props="$props$(cat Directory.Build.props)"
           fi
-          plats=$(printf '%s' "$props" \
-                  | tr -d '\n\r' \
-                  | grep -o '<Platforms>[^<]*</Platforms>' \
-                  | head -n1 | sed -E 's#</?Platforms>##g' || true)
+
+          plats="$(printf '%s' "$props" | tr -d '\r\n' \
+                   | grep -o '<Platforms>[^<]*</Platforms>' | head -n1 \
+                   | sed -E 's#</?Platforms>##g' || true)"
           echo "platforms=$plats" >> "$GITHUB_OUTPUT"
 
           echo "主工程: $p"
@@ -158,21 +156,23 @@ jobs:
           PLATFORMS: ${{ needs.prepare.outputs.platforms }}
           NUMVER: ${{ needs.prepare.outputs.numversion }}
         run: |
+          $ErrorActionPreference = "Stop"
+
           $out = Join-Path $env:GITHUB_WORKSPACE "publish/${{ matrix.rid }}"
           if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-          $a = @(
-            $env:PROJECT,
-            "/restore",
-            "/t:Publish",
-            "/p:Configuration=Release",
-            "/p:RuntimeIdentifier=${{ matrix.rid }}",
-            "/p:SelfContained=true",
-            "/p:WindowsAppSDKSelfContained=true",
-            "/p:Version=$env:NUMVER",
-            "/p:FileVersion=$env:NUMVER",
-            "/p:AssemblyVersion=$env:NUMVER",
+          $args = @(
+            $env:PROJECT
+            "/restore"
+            "/t:Publish"
+            "/p:Configuration=Release"
+            "/p:RuntimeIdentifier=${{ matrix.rid }}"
+            "/p:SelfContained=true"
+            "/p:WindowsAppSDKSelfContained=true"
+            "/p:Version=$env:NUMVER"
+            "/p:FileVersion=$env:NUMVER"
+            "/p:AssemblyVersion=$env:NUMVER"
             "/p:PublishDir=$out/"
           )
 
@@ -182,31 +182,35 @@ jobs:
           }
 
           if ($declared -contains "${{ matrix.platform }}") {
-            $a += "/p:Platform=${{ matrix.platform }}"
+            $args += "/p:Platform=${{ matrix.platform }}"
             Write-Host "Platform: ${{ matrix.platform }}"
           } else {
             Write-Host "工程未声明 ${{ matrix.platform }}，仅靠 RuntimeIdentifier 决定架构"
           }
 
-          & msbuild @a
+          & msbuild @args
           if ($LASTEXITCODE -ne 0) { throw "msbuild publish 失败: ${{ matrix.app_arch }}" }
 
       - name: Verify output
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+
           $dir = Join-Path $env:GITHUB_WORKSPACE "publish/${{ matrix.rid }}"
           $exe = Join-Path $dir "${env:APP_NAME}.exe"
           if (-not (Test-Path -LiteralPath $exe)) { throw "找不到 $exe，请核对 AssemblyName" }
 
-          $files = Get-ChildItem -LiteralPath $dir -Recurse -File
-          $mb = [math]::Round((($files | Measure-Object Length -Sum).Sum) / 1MB, 1)
+          $pri = @(Get-ChildItem -LiteralPath $dir -Filter *.pri -File -ErrorAction SilentlyContinue)
+          if ($pri.Count -eq 0) { throw "publish 目录没有 pri 资源文件，产物启动会报 0xC000027B" }
+          Write-Host "PRI: $($pri[0].Name)"
+
+          $files = @(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          $sum = ($files | Measure-Object Length -Sum).Sum
+          $mb = if ($sum) { [math]::Round($sum / 1MB, 1) } else { 0 }
           Write-Host "文件数: $($files.Count)，总大小: $mb MB"
 
           if ($mb -lt 60) {
             Write-Host "::warning::体积偏小，SelfContained 或 WindowsAppSDKSelfContained 可能未生效"
-          }
-          if (-not (Test-Path -LiteralPath (Join-Path $dir "resources.pri"))) {
-            Write-Host "::warning::缺少 resources.pri，界面文字可能显示异常"
           }
 
       - name: Cache Inno Setup
@@ -219,6 +223,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
           $dir  = "C:\InnoSetup"
           $iscc = Join-Path $dir "ISCC.exe"
           $want = (($env:INNO_VERSION -split '\.')[0..1] -join '.')
@@ -228,12 +233,13 @@ jobs:
             if (-not (Test-Path -LiteralPath $p)) { return $null }
             $v = (& $p --version 2>$null | Select-Object -First 1)
             if (-not $v) { $v = (Get-Item -LiteralPath $p).VersionInfo.FileVersion }
-            if ($v -and $v -match '(\d+\.\d+(?:\.\d+)?)') { return $Matches[1] }
+            if ($v -and ($v -match '(\d+\.\d+(?:\.\d+)?)')) { return $Matches[1] }
             return $null
           }
 
           $ver = Get-IsccVer $iscc
-          $got = if ($ver) { ($ver -split '\.')[0..1] -join '.' } else { $null }
+          $got = $null
+          if ($ver) { $got = ($ver -split '\.')[0..1] -join '.' }
 
           if ($got -eq $want) {
             Write-Host "缓存命中: $iscc (v$ver)"
@@ -250,7 +256,7 @@ jobs:
             try {
               $b = New-Object byte[] 2
               [void]$fs.Read($b, 0, 2)
-              if ($b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw "下载的不是有效 PE，可能被代理拦截返回了 HTML" }
+              if ($b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw "下载的不是有效 PE，可能被代理拦截" }
             } finally { $fs.Dispose() }
 
             $proc = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
@@ -259,7 +265,8 @@ jobs:
             if ($proc.ExitCode -ne 0) { throw "安装器退出码 $($proc.ExitCode)" }
 
             $ver = Get-IsccVer $iscc
-            $got = if ($ver) { ($ver -split '\.')[0..1] -join '.' } else { $null }
+            $got = $null
+            if ($ver) { $got = ($ver -split '\.')[0..1] -join '.' }
           }
 
           if ($got -ne $want) { throw "版本不符：期望 $($want).x，实际 $ver" }
@@ -287,7 +294,7 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
-  # ─────────── 3. x64 单文件便携版 ───────────
+  # ─────────── 3. x64 便携版：zip + 自解压单文件 ───────────
   portable:
     needs: prepare
     runs-on: windows-latest
@@ -302,34 +309,32 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Publish single-file portable (x64)
+      - name: Publish portable folder (x64)
         shell: pwsh
         env:
           PROJECT: ${{ needs.prepare.outputs.project }}
           PLATFORMS: ${{ needs.prepare.outputs.platforms }}
           NUMVER: ${{ needs.prepare.outputs.numversion }}
         run: |
+          $ErrorActionPreference = "Stop"
+
           $out = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
           if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-          $a = @(
-            $env:PROJECT,
-            "/restore",
-            "/t:Publish",
-            "/p:Configuration=Release",
-            "/p:RuntimeIdentifier=win-x64",
-            "/p:SelfContained=true",
-            "/p:WindowsAppSDKSelfContained=true",
-            "/p:EnableMsixTooling=true",
-            "/p:IncludeAllContentForSelfExtract=true",
-            "/p:IncludeNativeLibrariesForSelfExtract=true",
-            "/p:PublishSingleFile=true",
-            "/p:PublishTrimmed=false",
-            "/p:PublishReadyToRun=false",
-            "/p:Version=$env:NUMVER",
-            "/p:FileVersion=$env:NUMVER",
-            "/p:AssemblyVersion=$env:NUMVER",
+          $args = @(
+            $env:PROJECT
+            "/restore"
+            "/t:Publish"
+            "/p:Configuration=Release"
+            "/p:RuntimeIdentifier=win-x64"
+            "/p:SelfContained=true"
+            "/p:WindowsAppSDKSelfContained=true"
+            "/p:PublishTrimmed=false"
+            "/p:PublishReadyToRun=false"
+            "/p:Version=$env:NUMVER"
+            "/p:FileVersion=$env:NUMVER"
+            "/p:AssemblyVersion=$env:NUMVER"
             "/p:PublishDir=$out/"
           )
 
@@ -337,29 +342,141 @@ jobs:
           if ($env:PLATFORMS) {
             $declared = @($env:PLATFORMS -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
           }
-          if ($declared -contains "x64") { $a += "/p:Platform=x64" }
+          if ($declared -contains "x64") { $args += "/p:Platform=x64" }
 
-          & msbuild @a
-          if ($LASTEXITCODE -ne 0) { throw "单文件发布失败" }
+          & msbuild @args
+          if ($LASTEXITCODE -ne 0) { throw "便携版发布失败" }
 
-      - name: Stage portable exe
+      - name: Verify portable folder
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+
+          $dir = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
+          foreach ($f in @("${env:APP_NAME}.exe", "Microsoft.UI.Xaml.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $dir $f))) { throw "便携版目录缺少 $f" }
+          }
+          $pri = @(Get-ChildItem -LiteralPath $dir -Filter *.pri -File -ErrorAction SilentlyContinue)
+          if ($pri.Count -eq 0) { throw "便携版目录没有 pri 资源文件" }
+
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE/dist" | Out-Null
-          $src = Join-Path $env:GITHUB_WORKSPACE "publish/portable/${env:APP_NAME}.exe"
-          if (-not (Test-Path -LiteralPath $src)) { throw "单文件发布没有产出 ${env:APP_NAME}.exe" }
 
-          $dst = "$env:GITHUB_WORKSPACE/dist/${env:APP_NAME}-${{ needs.prepare.outputs.version }}-x64-portable.exe"
-          Copy-Item -LiteralPath $src -Destination $dst -Force
+          $sum = (Get-ChildItem -LiteralPath $dir -Recurse -File | Measure-Object Length -Sum).Sum
+          $mb = if ($sum) { [math]::Round($sum / 1MB, 1) } else { 0 }
+          Write-Host "便携版目录: $mb MB"
 
-          $mb = [math]::Round((Get-Item -LiteralPath $dst).Length / 1MB, 1)
-          Write-Host "便携版: $dst ($mb MB)"
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $ver = "${{ needs.prepare.outputs.version }}"
+          $zip = Join-Path $env:GITHUB_WORKSPACE "dist/${env:APP_NAME}-$ver-x64-portable.zip"
+          if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::CreateFromDirectory(
+            (Join-Path $env:GITHUB_WORKSPACE "publish/portable"),
+            $zip,
+            [IO.Compression.CompressionLevel]::Optimal,
+            $false)
+
+          $mb = [math]::Round((Get-Item -LiteralPath $zip).Length / 1MB, 1)
+          Write-Host "便携版 zip: $zip ($mb MB)"
+
+      - name: Build single-exe (7-Zip SFX)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $ver  = "${{ needs.prepare.outputs.version }}"
+          $src  = Join-Path $env:GITHUB_WORKSPACE "publish/portable"
+          $out  = Join-Path $env:GITHUB_WORKSPACE "dist/${env:APP_NAME}-$ver-x64-single-exe.exe"
+
+          $sevenZip = Join-Path $env:ProgramFiles "7-Zip\7z.exe"
+          if (-not (Test-Path -LiteralPath $sevenZip)) {
+            $sevenZip = Join-Path ${env:ProgramFiles(x86)} "7-Zip\7z.exe"
+          }
+          if (-not (Test-Path -LiteralPath $sevenZip)) { throw "runner 上找不到 7z.exe" }
+          Write-Host "7z: $sevenZip"
+
+          # 只有 7zS / 7zSD 系列能读 config.txt 自动运行；7z.sfx 只解压不启动
+          $sfx = $null
+          foreach ($n in @("7zS.sfx", "7zSD.sfx", "7zS2con.sfx", "7zS2.sfx")) {
+            $c = Join-Path (Split-Path $sevenZip -Parent) $n
+            if (Test-Path -LiteralPath $c) { $sfx = $c; break }
+          }
+
+          if (-not $sfx) {
+            Write-Host "安装目录无可配置 SFX 模块，从 7-Zip Extra 获取..."
+            $headers = @{ "User-Agent" = "DIEditor-CI"; "Accept" = "application/vnd.github+json" }
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/ip7z/7zip/releases/latest" -Headers $headers
+            $asset = @($rel.assets | Where-Object { $_.name -like "*-extra.7z" }) | Select-Object -First 1
+            if (-not $asset) { throw "未找到 7-Zip Extra 资源（tag: $($rel.tag_name)）" }
+
+            $extra = Join-Path $env:RUNNER_TEMP "7z-extra.7z"
+            Write-Host "下载 $($asset.name)"
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $extra -UseBasicParsing
+
+            $xdir = Join-Path $env:RUNNER_TEMP "7z-extra"
+            if (Test-Path -LiteralPath $xdir) { Remove-Item -LiteralPath $xdir -Recurse -Force }
+            & $sevenZip x $extra "-o$xdir" -y | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "解压 7-Zip Extra 失败" }
+
+            $cand = @(Get-ChildItem -LiteralPath $xdir -Recurse -File -Filter "*.sfx" -ErrorAction SilentlyContinue |
+                      Sort-Object { if ($_.Name -eq "7zS.sfx") { 0 } elseif ($_.Name -like "7zSD*") { 1 } else { 2 } })
+            if ($cand.Count -eq 0) { throw "Extra 包内没有 .sfx 模块" }
+            $sfx = $cand[0].FullName
+          }
+          Write-Host "SFX 模块: $sfx"
+
+          # 模块复制到无空格路径，供 -sfx 引用
+          $module = Join-Path $env:RUNNER_TEMP "sfxmod.sfx"
+          Copy-Item -LiteralPath $sfx -Destination $module -Force
+
+          # 内容目录：程序文件 + config.txt
+          $work = Join-Path $env:GITHUB_WORKSPACE "build\sfx"
+          if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          Copy-Item -Path "$src\*" -Destination $work -Recurse -Force
+
+          $lines = @(
+            ';!@Install@!UTF-8!'
+            ('Title="' + $env:APP_NAME + ' ' + $ver + '"')
+            ('RunProgram="' + $env:APP_NAME + '.exe"')
+            'GUIMode="2"'
+            ';!@InstallEnd@!'
+          )
+          $cfg = $lines -join "`r`n"
+
+          # 必须 UTF-8 无 BOM，带 BOM 时首行标记不被识别，会只解压不启动
+          $enc = New-Object System.Text.UTF8Encoding($false)
+          [IO.File]::WriteAllText((Join-Path $work "config.txt"), $cfg, $enc)
+
+          if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Force }
+
+          Push-Location $work
+          try {
+            $sfxArg = "-sfx$module"
+            & $sevenZip a $sfxArg -mx=5 -y $out ".\*" -r | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "SFX 打包失败（exit $LASTEXITCODE）" }
+          } finally {
+            Pop-Location
+          }
+
+          if (-not (Test-Path -LiteralPath $out)) { throw "SFX 产物未生成" }
+
+          $mb = [math]::Round((Get-Item -LiteralPath $out).Length / 1MB, 1)
+          if ($mb -lt 30) { Write-Host "::warning::自解压包仅 $mb MB，内容可能不完整" }
+          Write-Host "自解压单文件: $out ($mb MB)"
 
       - name: Upload portable
         uses: actions/upload-artifact@v4
         with:
           name: portable-x64
-          path: dist/*.exe
+          path: |
+            dist/*-portable.zip
+            dist/*-single-exe.exe
           if-no-files-found: error
 
   # ─────────── 4. 汇总成草稿 Release ───────────
@@ -374,13 +491,27 @@ jobs:
           merge-multiple: true
 
       - name: List files
+        shell: bash
         run: |
-          ls -lh dist
-          count=$(ls dist/*.exe 2>/dev/null | wc -l)
-          echo "共 $count 个附件"
-          if [ "$count" -ne 4 ]; then
-            echo "::warning::期望 4 个附件，实际 $count 个"
+          ls -lh dist || true
+
+          setups=$(find dist -maxdepth 1 -name '*-setup.exe' | wc -l)
+          zips=$(find dist -maxdepth 1 -name '*-portable.zip' | wc -l)
+          sfx=$(find dist -maxdepth 1 -name '*-single-exe.exe' | wc -l)
+
+          echo "安装包 $setups 个 / 便携 zip $zips 个 / 单文件 $sfx 个"
+
+          if [ "$setups" -ne 3 ]; then
+            echo "::warning::期望 3 个安装包，实际 $setups"
           fi
+          if [ "$zips" -ne 1 ]; then
+            echo "::warning::期望 1 个便携 zip，实际 $zips"
+          fi
+          if [ "$sfx" -ne 1 ]; then
+            echo "::warning::期望 1 个单文件，实际 $sfx"
+          fi
+
+          exit 0
 
       - name: Create draft release
         uses: softprops/action-gh-release@v2
